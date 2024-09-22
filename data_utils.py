@@ -10,12 +10,13 @@ from torchvision.ops import box_convert
 from torchvision.transforms import v2
 
 class HairDataset(Dataset):
-    def __init__(self, images_path, annotations_path) -> None:
+    def __init__(self, folder_path) -> None:
         super().__init__()
-        self.images_path = images_path
-        self.coco = COCO(annotation_file=annotations_path)
+        self.folder_path = folder_path
+        self.annotations_file = folder_path + '/_annotations.coco.json'
+        self.coco = COCO(annotation_file=self.annotations_file)
 
-        with open(f'{annotations_path}') as file:
+        with open(f'{self.annotations_file}') as file:
             self.raw_dictionary = json.load(file)
 
         self.list_of_image_dictionaries = self.raw_dictionary['images']
@@ -34,10 +35,12 @@ class HairDataset(Dataset):
         """
         Returns a tuple containing 'Image' and 'Target'
         """
-        image_path = f'{self.images_path}' + self.raw_dictionary['images'][index]['file_name']
+        device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+
+        image_path = f'{self.folder_path}/' + self.raw_dictionary['images'][index]['file_name']
         with Image.open(image_path) as pil_image:
             image = self.image_transforms(pil_image)
-            image = image.float()
+            image = image.float().to(device)
         target = {}
         target['area'] = []
         target['bbox'] = []
@@ -47,25 +50,25 @@ class HairDataset(Dataset):
         target['masks'] = []
 
         annotation_ids = self.coco.getAnnIds(imgIds=[self.list_of_image_dictionaries[index]['id']])
-        annotations = self.coco.loadAnns(annotation_ids)
-        mask_thing = self.coco.annToMask(annotations[0])
 
         for annotation in self.list_of_image_dictionaries[index]['list_of_annotations']:
             target['area'].append(annotation['area'])
             target['bbox'].append(annotation['bbox'])
             target['segmentation'].append(annotation['segmentation'])
+            annotations = self.coco.loadAnns(annotation_ids)
+            mask_thing = self.coco.annToMask(annotations[0])
             target['masks'].append(mask_thing)
             target['labels'].append(annotation['category_id'])
         
-        target['masks'] = torch.tensor(target['masks'])
+        target['masks'] = torch.tensor(target['masks']).to(device)
         
-        target['area'] = torch.Tensor(target['area']).float()
+        target['area'] = torch.Tensor(target['area']).float().to(device)
 
         # Convert the boxes attribute to tensors and then format it to xyxy from xywh
         target['boxes'] = tv_tensors.BoundingBoxes(target['bbox'], format='xywh', canvas_size=(640, 640))
-        target['boxes'] = box_convert(target['boxes'],  in_fmt='xywh', out_fmt='xyxy')
+        target['boxes'] = box_convert(target['boxes'],  in_fmt='xywh', out_fmt='xyxy').to(device)
 
-        target['labels'] = torch.Tensor(target['labels']).long()
+        target['labels'] = torch.Tensor(target['labels']).long().to(device)
 
         target.pop('segmentation', None)
         target.pop('bbox', None)
