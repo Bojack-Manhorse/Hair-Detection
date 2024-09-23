@@ -5,7 +5,7 @@ import uvicorn
 
 from fastapi import FastAPI
 from fastapi import File, Form, UploadFile
-from fastapi.responses import JSONResponse, FileResponse, Response
+from fastapi.responses import Response
 from PIL import Image
 from torchvision.models.detection import MaskRCNN_ResNet50_FPN_Weights
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
@@ -32,7 +32,7 @@ def get_model(weights_file = None):
         num_classes
     )
     if weights_file:
-        state_dict = torch.load(weights_file)
+        state_dict = torch.load(weights_file, map_location=torch.device(get_device()))
         model.load_state_dict(state_dict)
 
     return model
@@ -41,7 +41,7 @@ def get_device():
     return torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 try:
-    model = get_model('../My Model.pt')
+    model = get_model('My Model.pt')
     model.eval()
     model.to(get_device())
     visualiser = DrawMasks(model, MaskRCNN_ResNet50_FPN_Weights.DEFAULT.transforms(), get_device())
