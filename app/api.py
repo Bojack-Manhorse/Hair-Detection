@@ -1,6 +1,6 @@
 import io
+from model import get_model, get_device, load_model_weights
 import torch
-import torchvision
 import uvicorn
 
 from fastapi import FastAPI
@@ -8,52 +8,30 @@ from fastapi import File, Form, UploadFile
 from fastapi.responses import Response
 from PIL import Image
 from torchvision.models.detection import MaskRCNN_ResNet50_FPN_Weights
-from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
-from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
 from visual_utils import DrawMasks
 
-def get_model():
-
-    model = torchvision.models.detection.maskrcnn_resnet50_fpn(weights="DEFAULT")
-
-    num_classes = 2
-
-    in_features = model.roi_heads.box_predictor.cls_score.in_features
-
-    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
-
-    in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
-
-    hidden_layer_size = 256
-
-    model.roi_heads.mask_predictor = MaskRCNNPredictor(
-        in_features_mask,
-        hidden_layer_size,
-        num_classes
-    )
-
-    return model
-
-def load_model_weights(model, weights_file:str):
-    state_dict = torch.load(weights_file, map_location=torch.device(get_device()))
-    model.load_state_dict(state_dict)
-
-def get_device():
-    return torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-
 try:
-    model = get_model()
+    """
+    Attempt to load the model and cast it to the correct device.
+    """
+    model = get_model(2)
     model.eval()
     model.to(get_device())
 except:
     raise OSError("Could not load model.")
 
 try:
-    load_model_weights(model, 'My Model.pt')
+    """
+    Attempt to load the model weights.
+    """
+    load_model_weights(model, 'Model_Weights.pt')
 except:
     raise OSError("Could not load model weights.")
 
 try:
+    """
+    Attempt to load an instance of the visualiser class.
+    """
     visualiser = DrawMasks(model, MaskRCNN_ResNet50_FPN_Weights.DEFAULT.transforms(), get_device())
 except:
     raise OSError("Could not create an instance of the visualiser class.")
@@ -68,19 +46,38 @@ def healthcheck():
 
 @app.post('/get_mask')
 def get_mask(image: UploadFile = File(...), prob_threshold:float = Form(...), resize_image:bool = Form(...)):
+    """
+    Function to get the masks from the model predictions of a particular image.
 
+    Args:
+        image: The image you wish to create the masks of.
+        prob_threshold: The cut off point of the model's predictions to consider a pixel a part of the mask. Higher values mean a more conservative mask.
+        resize_image: Whether or not to resize the image, so that the longest side is of length 1000 pixels.
+    """
+
+    # Read the image file
     file_bytes = image.file.read()
+
+    # Convert the image to PIL Image format.
     image = Image.open(io.BytesIO(file_bytes))
 
+    # Resize the image if the option was chosen, using a static method of the visualiser class.
+    if resize_image:
+        image = visualiser.resize_image(image)
+    
+    # Attempt to predict and draw the masks from image, using the 'draw_mask_from_PIL_image_and_model' method of the visualiser class.
     try:
         image = visualiser.draw_mask_from_PIL_image_and_model(image, prob_threshold)
     except torch.OutOfMemoryError:
         print("Ran out of memory, resizing image, try reszing the image.")
     
+    # Create an instance of the io.BytesIO() class to load the masked image onto.
     bytes_image = io.BytesIO()
 
+    # Load the image onto bytes_image.
     image.save(bytes_image, format='PNG')
 
+    # Return the result.
     return Response(content = bytes_image.getvalue(), media_type="image/png")
 
 

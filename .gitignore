@@ -1,8 +1,8 @@
 Datasets
 runs
 __pycache__
-My_Model.pt
-My Model.pt
+Model_Weights.pt
+Roughbook.ipynb
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
