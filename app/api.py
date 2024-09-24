@@ -12,7 +12,7 @@ from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
 from visual_utils import DrawMasks
 
-def get_model(weights_file = None):
+def get_model():
 
     model = torchvision.models.detection.maskrcnn_resnet50_fpn(weights="DEFAULT")
 
@@ -31,22 +31,32 @@ def get_model(weights_file = None):
         hidden_layer_size,
         num_classes
     )
-    if weights_file:
-        state_dict = torch.load(weights_file, map_location=torch.device(get_device()))
-        model.load_state_dict(state_dict)
 
     return model
+
+def load_model_weights(model, weights_file:str):
+    state_dict = torch.load(weights_file, map_location=torch.device(get_device()))
+    model.load_state_dict(state_dict)
 
 def get_device():
     return torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 try:
-    model = get_model('My Model.pt')
+    model = get_model()
     model.eval()
     model.to(get_device())
+except:
+    raise OSError("Could not load model.")
+
+try:
+    load_model_weights(model, 'My Model.pt')
+except:
+    raise OSError("Could not load model weights.")
+
+try:
     visualiser = DrawMasks(model, MaskRCNN_ResNet50_FPN_Weights.DEFAULT.transforms(), get_device())
 except:
-    raise OSError()
+    raise OSError("Could not create an instance of the visualiser class.")
 
 app = FastAPI()
 print("Starting server")
@@ -57,12 +67,18 @@ def healthcheck():
     return {"message": msg}
 
 @app.post('/get_mask')
-def get_mask(image: UploadFile = File(...), prob_threshold:float = Form(...)):
+def get_mask(image: UploadFile = File(...), prob_threshold:float = Form(...), resize_image:bool = Form(...)):
 
     file_bytes = image.file.read()
     image = Image.open(io.BytesIO(file_bytes))
-    image = visualiser.draw_mask_from_PIL_image_and_model(image, prob_threshold)
+
+    try:
+        image = visualiser.draw_mask_from_PIL_image_and_model(image, prob_threshold)
+    except torch.OutOfMemoryError:
+        print("Ran out of memory, resizing image, try reszing the image.")
+    
     bytes_image = io.BytesIO()
+
     image.save(bytes_image, format='PNG')
 
     return Response(content = bytes_image.getvalue(), media_type="image/png")
